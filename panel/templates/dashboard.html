@@ -3,16 +3,16 @@
 {% block content %}
 <header class="hero-card">
   <div class="hero-copy">
-    <p class="eyebrow">GOST v3 TCP Reverse Proxy</p>
-    <h1>443 SNI 分流管理</h1>
-    <p class="muted">规则匹配到 REALITY SNI 时转发到对应落地；没有匹配到的未知 SNI 默认转发到 Caddy fallback。</p>
+    <p class="eyebrow">GOST v3 · Caddy · 443 复用</p>
+    <h1>一个 443，分流多台落地 VPS</h1>
+    <p class="muted">GOST 监听 443 并识别 REALITY 的 SNI；命中规则转发到落地，未命中则交给本机 Caddy 处理网站/反代。</p>
   </div>
   <div class="hero-actions">
     <form method="post" action="{{ url_for('apply_now') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button class="primary-button" type="submit">重新生成并重启</button>
     </form>
-    <a class="ghost-button" href="{{ url_for('download_config') }}">下载 config.yaml</a>
+    <a class="ghost-button" href="{{ url_for('view_config') }}">查看实时配置</a>
   </div>
 </header>
 
@@ -48,24 +48,24 @@
     <div class="card-head">
       <span class="card-kicker">新增转发</span>
       <h2>添加 SNI 规则</h2>
-      <span class="hint">例：www.dropbox.com → hk-a.example.com:443</span>
+      <span class="hint">填写落地 VPS 的 REALITY SNI，以及落地 VPS 的域名或 IP。</span>
     </div>
     <form method="post" action="{{ url_for('add_rule') }}" class="rule-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="enabled" value="true">
       <label>SNI / serverName
-        <input name="sni" required placeholder="www.dropbox.com">
+        <input name="sni" required placeholder="落地 VPS 的 SNI，例如 visa.cn">
       </label>
       <div class="form-row">
         <label>目标域名或 IP
-          <input name="target" required placeholder="hk-alice.example.com">
+          <input name="target" required placeholder="落地 VPS 的域名或 IP，例如 a.example.com">
         </label>
         <label>目标端口
           <input name="port" required type="number" min="1" max="65535" value="443">
         </label>
       </div>
       <label>备注
-        <input name="note" maxlength="120" placeholder="落地 A / REALITY">
+        <input name="note" maxlength="120" placeholder="落地 B / 香港 / 反代">
       </label>
       <button class="primary-button" type="submit">添加并立即应用</button>
     </form>
@@ -153,7 +153,7 @@
   {% else %}
   <div class="empty-state">
     <h3>还没有 SNI 规则</h3>
-    <p>先添加一条，例如 <code>www.dropbox.com → hk-a.example.com:443</code>。未匹配流量会进入默认后端。</p>
+    <p>先添加一条，例如 <code>visa.cn → a.example.com:443</code>。未匹配流量会进入默认后端。</p>
   </div>
   {% endif %}
 </section>
