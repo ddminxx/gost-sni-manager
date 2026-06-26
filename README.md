@@ -1,49 +1,82 @@
 # GOST SNI Manager
 
-一个用于 Debian/Ubuntu VPS 的 GOST v3 443 SNI 分流管理面板。
+GOST SNI Manager（简称 GSM）是一个用于中转 VPS 的轻量级 443 端口复用管理面板。
 
-适合这种结构：
+它的目标是让 **Caddy 反代** 和 **GOST 转发** 共存：中转 VPS 只暴露一个 443 端口，GOST 根据落地 VPS 的 REALITY `SNI / serverName` 判断流量应该转发到哪台落地 VPS；没有命中已配置 SNI 的流量，则转发到本机 Caddy，由 Caddy 处理网站、面板或其他反代服务。
+
+## 项目功能
+
+- 中转 VPS 实现 443 端口复用。
+- GOST 监听 443，Caddy 默认监听 8053。
+- GOST 通过 REALITY 的 SNI 区分多台落地 VPS。
+- 支持将不同 SNI 转发到不同落地 VPS 的域名或 IP。
+- 未匹配到规则的未知 SNI 自动转发到 Caddy。
+- 面板支持添加、编辑、启用/禁用、删除转发规则。
+- 面板操作后自动生成 `/etc/gost/config.yaml` 并重启 GOST。
+- 一键脚本自动安装依赖、GOST v3、Caddy 和管理面板。
+- 一键脚本自动生成随机用户名和强密码，并保存到 `/root/gsm.txt`。
+- 面板端口自动选择 `50000-55000` 之间未占用端口。
+- 可选配置面板域名；配置后由 Caddy 自动申请证书。
+
+## 适用场景
+
+假设你有多台落地 VPS，每台落地 VPS 都已经安装 Xray 并配置 REALITY 协议。传统方式可能需要不同的非标端口做中转转发，容易暴露特征，也不方便管理。
+
+GSM 的思路是：
 
 ```text
-公网 443 -> GOST v3
-  ├─ SNI = www.dropbox.com  -> 落地 A:443
-  ├─ SNI = drive.google.com -> 落地 B:443
-  └─ 其他未知 SNI          -> 本机 Caddy:8053
+客户端连接中转 VPS:443
+        ↓
+GOST 读取 TLS/REALITY 握手里的 SNI
+        ↓
+如果 SNI 命中规则：转发到对应落地 VPS:443
+如果 SNI 未命中规则：转发到本机 Caddy:8053
 ```
 
-面板功能：
+这样可以让多台落地 VPS 共用中转 VPS 的同一个 443 入口，客户端只需要把连接地址改成中转 VPS 的域名或 IP，REALITY 的 `serverName / SNI` 保持为对应落地配置的 SNI。
 
-- 随机用户名 + 强密码登录
-- 添加、编辑、禁用、删除 SNI 转发规则
-- 自动生成 `/etc/gost/config.yaml`
-- 自动重启 `gost.service`
-- 查看 GOST/Caddy 运行状态和日志
-- Caddy fallback 默认站点
-- 可选管理域名，域名会自动写入 Caddy 并申请证书
-- 未配置域名时，面板直接开放在随机高位端口
+## 轻量说明
 
-> GOST 只做 TCP 透传和 SNI 嗅探，不解密 TLS。REALITY 后端仍然会收到原始 TLS/REALITY 握手。
+GSM 本身很轻量，面板只是一个小型 Flask + Gunicorn Web 应用，主要工作是保存规则、生成 GOST 配置并重启服务。
+
+大致资源占用如下，不同系统和版本会有差异：
+
+```text
+项目面板代码：约几 MB
+Python 虚拟环境：约 30-80 MB
+GOST 二进制：约 20-50 MB
+Caddy 及依赖：约 50-150 MB
+总磁盘占用：通常约 100-300 MB
+
+空闲内存占用：
+GOST：约 15-40 MB
+面板：约 30-80 MB
+Caddy：约 20-60 MB
+合计：通常约 70-180 MB
+```
+
+实际转发性能主要取决于中转 VPS 线路、带宽、CPU、并发连接数以及中转到落地的网络质量。GOST 在这里只做 TCP 透传和 SNI 分流，不解密 REALITY 流量，通常性能损耗很小。
 
 ## 一键安装
 
-上传到 GitHub 后，在 VPS 上执行：
+在中转 VPS 上执行：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/gost-sni-manager/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ddminxx/gost-sni-manager/main/install.sh)
 ```
 
-脚本会交互询问：
+脚本会自动安装需要的依赖，并询问：
 
 ```text
-是否配置管理面板域名？[y/N]
+是否现在配置面板域名？[y/N]
 ```
 
-### 选择配置域名
+### 配置面板域名
 
-先把管理域名解析到这台中转 VPS，例如：
+先将面板域名解析到中转 VPS，例如：
 
 ```text
-admin.example.com A/AAAA -> 中转 VPS IP
+admin.example.com -> 中转 VPS IP
 ```
 
 安装时选择 `y`，然后输入：
@@ -58,29 +91,19 @@ admin.example.com
 https://admin.example.com/
 ```
 
-访问链路：
+### 不配置面板域名
+
+安装时直接回车或输入 `n`。脚本会自动选择 `50000-55000` 之间未占用的高位端口，并让面板监听公网：
 
 ```text
-浏览器 https://admin.example.com:443
-  -> GOST 443
-  -> 未匹配 REALITY SNI，fallback 到 Caddy 8053
-  -> Caddy 自动申请并提供 admin.example.com 证书
-  -> Caddy reverse_proxy 到面板 127.0.0.1:随机端口
+http://中转VPS_IP:随机端口/
 ```
 
-### 不配置域名
+这种方式更简单，但建议用防火墙限制访问来源，或者后续再配置面板域名。
 
-安装时选择 `n` 或直接回车。脚本会在 `50000-55000` 中随机选择一个未占用端口，并输出：
+## 安装完成后的信息
 
-```text
-http://服务器IP:随机端口/
-```
-
-这种方式建议用防火墙限制来源，后续再配置管理域名。
-
-## 安装完成后的登录信息
-
-脚本会随机生成用户名和强密码，并在安装完成后显示：
+安装结束后脚本会显示：
 
 ```text
 面板访问: https://admin.example.com/
@@ -89,64 +112,146 @@ http://服务器IP:随机端口/
 登录信息已保存: /root/gsm.txt
 ```
 
-同样内容会保存到：
+如果没有配置面板域名，会显示类似：
 
-```bash
-/root/gsm.txt
+```text
+面板访问: http://中转VPS_IP:54735/
+用户名: gsm_xxxxxxxx
+密码: 随机强密码
+登录信息已保存: /root/gsm.txt
+[!] 未配置面板域名，面板直接监听 0.0.0.0:54735。建议用防火墙限制来源，或后续配置域名。
 ```
 
-文件权限为 `600`，仅 root 可读。请立即保存。
-
-## 初始化转发规则
-
-安装时可以通过 `INIT_RULES` 预置规则，格式：
+请立即保存用户名和密码。后续也可以在 VPS 上查看：
 
 ```bash
-INIT_RULES='www.dropbox.com=hk-a.example.com:443,drive.google.com=hk-b.example.com:443' \
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/gost-sni-manager/main/install.sh)
+cat /root/gsm.txt
 ```
 
-安装后也可以直接在页面里新增规则。
+## 使用示例
 
-## 常用环境变量
+假设有 3 台 VPS：
 
-| 变量 | 默认值 | 说明 |
-|---|---:|---|
-| `PANEL_DOMAIN` | 空 | 面板域名；设置后跳过交互询问 |
-| `PANEL_USER` | 随机生成 | 自定义登录用户名 |
-| `PANEL_PASSWORD` | 随机生成 | 自定义初始密码，不建议手动设置弱密码 |
-| `PANEL_PORT` | 随机空闲端口 | 面板内部端口，默认在 `50000-55000` 中选择 |
-| `CADDY_HTTPS_PORT` | `8053` | Caddy HTTPS fallback 端口 |
-| `GOST_LISTEN` | `:443` | GOST 监听地址 |
-| `GOST_FALLBACK` | `127.0.0.1:8053` | 未匹配 SNI 的默认后端 |
-| `INIT_RULES` | 空 | 初始化规则 |
-| `CLEAN_OLD_AURORA` | `0` | 设为 `1` 会清理旧 aurora@gost v2 服务 |
-| `CREDENTIALS_FILE` | `/root/gsm.txt` | 登录信息保存路径 |
+### 1. 中转 VPS A
 
-## 非交互安装示例
+```text
+中转 VPS：A
+中转域名：a.example.com
+网站/反代域名：aweb.example.com
 
-已经准备好域名时：
-
-```bash
-PANEL_DOMAIN=admin.example.com \
-INIT_RULES='www.dropbox.com=hk-a.example.com:443,drive.google.com=hk-b.example.com:443' \
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/gost-sni-manager/main/install.sh)
+其中：
+a.example.com 已解析到 VPS A 的 IP
+aweb.example.com 已解析到 VPS A 的 IP
 ```
 
-清理旧 aurora@gost v2 服务并安装：
+### 2. 落地 VPS B
+
+```text
+落地 VPS：B
+落地域名：b.example.com
+
+b.example.com 已解析到 VPS B 的 IP
+VPS B 已安装 Xray
+VPS B 已配置 REALITY
+REALITY SNI / serverName：apple.com
+REALITY 连接端口：443
+```
+
+### 3. 落地 VPS C
+
+```text
+落地 VPS：C
+落地域名：c.example.com
+
+c.example.com 已解析到 VPS C 的 IP
+VPS C 已安装 Xray
+VPS C 已配置 REALITY
+REALITY SNI / serverName：visa.cn
+REALITY 连接端口：443
+```
+
+### 4. 在中转 VPS A 安装 GSM 面板
+
+在 VPS A 执行：
 
 ```bash
-CLEAN_OLD_AURORA=1 bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/gost-sni-manager/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ddminxx/gost-sni-manager/main/install.sh)
+```
+
+安装完成后登录面板。
+
+### 5. 添加落地 B 的规则
+
+在面板中添加：
+
+```text
+SNI / serverName：apple.com
+目标域名或 IP：b.example.com
+目标端口：443
+备注：落地 B
+```
+
+### 6. 添加落地 C 的规则
+
+在面板中添加：
+
+```text
+SNI / serverName：visa.cn
+目标域名或 IP：c.example.com
+目标端口：443
+备注：落地 C
+```
+
+### 7. 添加 Caddy 反代规则，可选
+
+如果你希望 `aweb.example.com` 明确进入本机 Caddy，可以在面板中添加：
+
+```text
+SNI / serverName：aweb.example.com
+目标域名或 IP：127.0.0.1
+目标端口：8053
+备注：反代
+```
+
+说明：默认情况下，未匹配到任何规则的 SNI 也会进入 `127.0.0.1:8053`。所以这条规则不是必须的，但添加后逻辑更直观。
+
+Caddy 中仍需要你自行配置 `aweb.example.com` 的具体反代规则。
+
+### 8. 客户端连接方式
+
+连接落地 VPS B 时，把客户端里的连接地址改成中转 VPS A：
+
+```text
+原连接地址：b.example.com
+新连接地址：a.example.com
+端口：443
+SNI / serverName：apple.com
+```
+
+连接落地 VPS C 时：
+
+```text
+原连接地址：c.example.com
+新连接地址：a.example.com
+端口：443
+SNI / serverName：visa.cn
+```
+
+访问 Caddy 反代服务时，直接访问：
+
+```text
+https://aweb.example.com/
 ```
 
 ## 面板操作逻辑
 
-1. 在页面添加 SNI 和后端，例如 `www.dropbox.com -> hk-a.example.com:443`。
-2. 面板保存到 `/etc/gost-panel/rules.json`。
-3. 面板重新生成 `/etc/gost/config.yaml`。
-4. 面板执行 `systemctl restart gost`。
-5. GOST 根据 ClientHello 里的 SNI 选择后端。
-6. 没匹配到任何规则的连接会进入默认后端 `127.0.0.1:8053`。
+1. 添加 SNI 和转发目标。
+2. 面板保存规则到 `/etc/gost-panel/rules.json`。
+3. 面板生成 `/etc/gost/config.yaml`。
+4. 面板重启 `gost.service`。
+5. GOST 继续监听公网 443。
+6. 命中 SNI 的流量转发到落地 VPS。
+7. 未命中 SNI 的流量转发到 Caddy fallback。
 
 ## 生成的 GOST 配置示例
 
@@ -162,46 +267,70 @@ services:
     type: tcp
   forwarder:
     nodes:
-    - name: sni-example
-      addr: hk-a.example.com:443
+    - name: sni-apple-com
+      addr: b.example.com:443
       matcher:
-        rule: Host(`www.dropbox.com`)
+        rule: Host(`apple.com`)
+    - name: sni-visa-cn
+      addr: c.example.com:443
+      matcher:
+        rule: Host(`visa.cn`)
     - name: caddy-fallback
       addr: 127.0.0.1:8053
 ```
 
 ## 常用命令
 
+查看登录信息：
+
+```bash
+cat /root/gsm.txt
+```
+
+查看服务状态：
+
 ```bash
 systemctl status gost gost-panel caddy --no-pager
+```
+
+查看 GOST 日志：
+
+```bash
 journalctl -u gost -f
+```
+
+查看面板日志：
+
+```bash
 journalctl -u gost-panel -f
+```
+
+查看 Caddy 日志：
+
+```bash
 journalctl -u caddy -f
-cat /root/gsm.txt
+```
+
+查看当前 GOST 配置：
+
+```bash
 cat /etc/gost/config.yaml
 ```
 
-## 上传到 GitHub
+## 非交互安装
 
-在项目目录执行：
-
-```bash
-git init
-git add .
-git commit -m "initial gost sni manager"
-git branch -M main
-git remote add origin git@github.com:你的用户名/gost-sni-manager.git
-git push -u origin main
-```
-
-随后即可使用 raw 一键安装：
+已经准备好面板域名时：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/你的用户名/gost-sni-manager/main/install.sh)
+PANEL_DOMAIN=admin.example.com \
+INIT_RULES='apple.com=b.example.com:443,visa.cn=c.example.com:443' \
+bash <(curl -fsSL https://raw.githubusercontent.com/ddminxx/gost-sni-manager/main/install.sh)
 ```
 
 ## 卸载
 
 ```bash
-bash uninstall.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/ddminxx/gost-sni-manager/main/uninstall.sh)
 ```
+
+卸载脚本会删除面板、GOST 配置和 systemd 服务。是否删除 GOST 二进制、是否卸载 Caddy，会在卸载过程中询问。
