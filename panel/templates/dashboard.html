@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}转发规则 - {{ app_name }}{% endblock %}
+{% block content %}
+<header class="hero-card">
+  <div class="hero-copy">
+    <p class="eyebrow">GOST v3 TCP Reverse Proxy</p>
+    <h1>443 SNI 分流管理</h1>
+    <p class="muted">规则匹配到 REALITY SNI 时转发到对应落地；没有匹配到的未知 SNI 默认转发到 Caddy fallback。</p>
+  </div>
+  <div class="hero-actions">
+    <form method="post" action="{{ url_for('apply_now') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="primary-button" type="submit">重新生成并重启</button>
+    </form>
+    <a class="ghost-button" href="{{ url_for('download_config') }}">下载 config.yaml</a>
+  </div>
+</header>
+
+<section class="flow-card">
+  <div class="flow-step"><span>公网 443</span><strong>GOST</strong></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step"><span>匹配 SNI</span><strong>落地 VPS</strong></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step"><span>未知 SNI</span><strong>Caddy fallback</strong></div>
+</section>
+
+<section class="status-grid">
+  <div class="status-card">
+    <span>GOST</span>
+    <strong class="status-pill {{ 'ok' if status.get('gost') == 'active' else 'bad' }}">{{ status.get('gost', 'unknown') }}</strong>
+  </div>
+  <div class="status-card">
+    <span>Caddy</span>
+    <strong class="status-pill {{ 'ok' if status.get('caddy') == 'active' else 'warn' }}">{{ status.get('caddy', 'unknown') }}</strong>
+  </div>
+  <div class="status-card">
+    <span>规则数量</span>
+    <strong>{{ state.rules|length }}</strong>
+  </div>
+  <div class="status-card wide">
+    <span>GOST 版本</span>
+    <strong>{{ status.get('gost_version') or '未知' }}</strong>
+  </div>
+</section>
+
+<section class="grid-2">
+  <div class="panel-card accent-card">
+    <div class="card-head">
+      <span class="card-kicker">新增转发</span>
+      <h2>添加 SNI 规则</h2>
+      <span class="hint">例：www.dropbox.com → hk-a.example.com:443</span>
+    </div>
+    <form method="post" action="{{ url_for('add_rule') }}" class="rule-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="enabled" value="true">
+      <label>SNI / serverName
+        <input name="sni" required placeholder="www.dropbox.com">
+      </label>
+      <div class="form-row">
+        <label>目标域名或 IP
+          <input name="target" required placeholder="hk-alice.example.com">
+        </label>
+        <label>目标端口
+          <input name="port" required type="number" min="1" max="65535" value="443">
+        </label>
+      </div>
+      <label>备注
+        <input name="note" maxlength="120" placeholder="落地 A / REALITY">
+      </label>
+      <button class="primary-button" type="submit">添加并立即应用</button>
+    </form>
+  </div>
+
+  <div class="panel-card">
+    <div class="card-head">
+      <span class="card-kicker">基础设置</span>
+      <h2>监听与默认后端</h2>
+      <span class="hint">fallback 建议指向本机 Caddy HTTPS 端口</span>
+    </div>
+    <form method="post" action="{{ url_for('update_settings') }}" class="rule-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>GOST 监听地址
+        <input name="listen" required value="{{ state.listen }}" placeholder=":443">
+      </label>
+      <label>默认后端 / 未知 SNI
+        <input name="fallback_addr" required value="{{ state.fallback_addr }}" placeholder="127.0.0.1:8053">
+      </label>
+      <div class="info-box">
+        <strong>转发优先级</strong>
+        <p>规则列表从上到下匹配；没有匹配到的连接进入默认后端。</p>
+      </div>
+      <button class="secondary-button" type="submit">保存基础设置</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel-card rules-card">
+  <div class="card-head between">
+    <div>
+      <span class="card-kicker">规则列表</span>
+      <h2>当前 SNI 转发</h2>
+      <span class="hint">新增、修改、禁用、删除后会自动生成配置并重启 GOST。</span>
+    </div>
+    <a class="ghost-button" href="{{ url_for('view_config') }}">查看实时配置</a>
+  </div>
+  {% if state.rules %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>状态</th>
+          <th>SNI</th>
+          <th>转发目标</th>
+          <th>备注</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in state.rules %}
+        <tr class="{{ '' if rule.enabled else 'disabled-row' }}">
+          <td>
+            <form method="post" action="{{ url_for('toggle_rule', rule_id=rule.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="mini-toggle {{ 'on' if rule.enabled else 'off' }}" type="submit">{{ 'ON' if rule.enabled else 'OFF' }}</button>
+            </form>
+          </td>
+          <td><code>{{ rule.sni }}</code></td>
+          <td><code>{{ rule.target }}:{{ rule.port }}</code></td>
+          <td>{{ rule.note or '-' }}</td>
+          <td class="actions">
+            <details>
+              <summary class="small-button">编辑</summary>
+              <form method="post" action="{{ url_for('update_rule', rule_id=rule.id) }}" class="inline-edit">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="enabled" value="{{ 'true' if rule.enabled else 'false' }}">
+                <input name="sni" value="{{ rule.sni }}" required>
+                <input name="target" value="{{ rule.target }}" required>
+                <input name="port" value="{{ rule.port }}" required type="number" min="1" max="65535">
+                <input name="note" value="{{ rule.note }}" maxlength="120">
+                <button class="secondary-button small" type="submit">保存</button>
+              </form>
+            </details>
+            <form method="post" action="{{ url_for('delete_rule', rule_id=rule.id) }}" onsubmit="return confirm('确定删除这条规则吗？')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="danger-button" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3>还没有 SNI 规则</h3>
+    <p>先添加一条，例如 <code>www.dropbox.com → hk-a.example.com:443</code>。未匹配流量会进入默认后端。</p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="panel-card">
+  <div class="card-head">
+    <span class="card-kicker">端口检查</span>
+    <h2>443 监听状态</h2>
+  </div>
+  <pre class="code-block">{{ status.get('listen_443') or '暂未检测到 :443 监听，检查 gost.service 是否启动。' }}</pre>
+</section>
+{% endblock %}

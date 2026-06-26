@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="mesh mesh-a"></div>
+  <div class="mesh mesh-b"></div>
+  <div class="grain"></div>
+  <div class="shell">
+    {% if session.get('user') %}
+    <aside class="sidebar">
+      <a href="{{ url_for('dashboard') }}" class="brand">
+        <div class="brand-mark">GS</div>
+        <div>
+          <div class="brand-title">GOST SNI</div>
+          <div class="brand-subtitle">Layer 4 控制台</div>
+        </div>
+      </a>
+      <nav class="nav">
+        <a href="{{ url_for('dashboard') }}" class="nav-link">规则总览</a>
+        <a href="{{ url_for('view_config') }}" class="nav-link">查看配置</a>
+        <a href="{{ url_for('logs') }}" class="nav-link">运行日志</a>
+      </nav>
+      <div class="side-note">
+        <span>当前模式</span>
+        <strong>SNI 匹配 → 落地</strong>
+        <strong>未知 SNI → Caddy</strong>
+      </div>
+      <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="ghost-button full">退出登录</button>
+      </form>
+    </aside>
+    {% endif %}
+    <main class="content {% if not session.get('user') %}content-centered{% endif %}">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="toast-stack">
+          {% for category, message in messages %}
+            <div class="toast toast-{{ category }}">{{ message }}</div>
+          {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

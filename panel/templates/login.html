@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}登录 - {{ app_name }}{% endblock %}
+{% block content %}
+<section class="login-layout">
+  <div class="login-intro">
+    <span class="badge">443 / TCP / SNI</span>
+    <h1>把一个 443 入口，分发到多个落地。</h1>
+    <p>面板只负责生成 GOST v3 配置：匹配 REALITY SNI 转发落地，其他未知 SNI 进入 Caddy fallback。</p>
+    <div class="mini-flow">
+      <span>Client</span><i>→</i><span>GOST 443</span><i>→</i><span>Reality / Caddy</span>
+    </div>
+  </div>
+  <div class="login-card">
+    <div class="card-kicker">安全登录</div>
+    <h2>GOST SNI Manager</h2>
+    <p>请输入安装脚本生成的用户名和强密码。</p>
+    <form method="post" action="{{ url_for('login_submit') }}" class="form-stack">
+      <label>用户名
+        <input name="username" autocomplete="username" required placeholder="gsm_xxxxxxxx">
+      </label>
+      <label>密码
+        <input name="password" type="password" autocomplete="current-password" required placeholder="/root/gsm.txt 中的密码">
+      </label>
+      <button class="primary-button" type="submit">进入控制台</button>
+    </form>
+  </div>
+</section>
+{% endblock %}
