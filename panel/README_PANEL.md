@@ -1,27 +1,9 @@
-# Panel files
+# Panel runtime files
 
-这些文件会被 `install.sh` 安装到 `/opt/gost-sni-manager`。
+这是 GOST SNI Manager 的面板程序目录。
 
-运行方式：
-
-```bash
-/opt/gost-sni-manager/venv/bin/python /opt/gost-sni-manager/app.py serve --host 127.0.0.1 --port 50000
-```
-
-数据目录默认：
-
-```text
-/etc/gost-panel
-```
-
-面板会管理：
-
-```text
-/etc/gost/config.yaml
-```
-
-登录信息由安装脚本生成并保存到：
-
-```text
-/root/gsm.txt
-```
+- `app.py`：面板主程序，负责规则管理、配置生成和服务重启。
+- `wsgi.py`：Gunicorn 入口。
+- `templates/`：页面模板。
+- `static/style.css`：页面样式。
+- `requirements.txt`：Python 依赖。

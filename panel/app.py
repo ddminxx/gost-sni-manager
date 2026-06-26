@@ -29,7 +29,6 @@ from flask import (
     redirect,
     render_template,
     request,
-    send_file,
     session,
     url_for,
 )
@@ -65,7 +64,7 @@ def create_app() -> Flask:
     def inject_globals() -> Dict[str, Any]:
         return {
             "app_name": APP_NAME,
-            "version": "1.1.0",
+            "version": "1.2.0",
             "csrf_token": get_csrf_token(),
         }
 
@@ -226,13 +225,6 @@ def create_app() -> Flask:
         yaml_text = generate_gost_config(load_state())
         return Response(yaml_text, mimetype="text/plain; charset=utf-8")
 
-    @app.get("/download/config.yaml")
-    @require_login
-    def download_config() -> Response:
-        if not GOST_CONFIG.exists():
-            apply_config(restart=False)
-        return send_file(GOST_CONFIG, as_attachment=True, download_name="config.yaml")
-
     @app.get("/logs")
     @require_login
     def logs() -> str:
@@ -352,10 +344,18 @@ def parse_rule_form(form) -> Dict[str, Any]:
     note = form.get("note", "").strip()[:120]
     enabled = form.get("enabled") == "on" or form.get("enabled") == "true"
 
+    # For beginners: allow typing 127.0.0.1:8053 directly in the target box.
+    # If a separate port is also provided, the port inside target takes priority.
+    if not target.startswith("[") and target.count(":") == 1:
+        host_part, port_part = target.rsplit(":", 1)
+        if port_part.isdigit():
+            target = host_part.strip()
+            port_str = port_part.strip()
+
     if not validate_domain(sni):
-        raise ValueError("SNI 域名格式不正确，例如 www.dropbox.com。")
+        raise ValueError("SNI / serverName 格式不正确，例如 visa.cn。")
     if not validate_host(target):
-        raise ValueError("目标域名/IP 格式不正确，例如 hk-alice.example.com。")
+        raise ValueError("目标域名或 IP 格式不正确，例如 a.example.com 或 127.0.0.1。")
     try:
         port = int(port_str)
     except ValueError as exc:
