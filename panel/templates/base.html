@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+  <nav class="topbar">
+    <a class="brand" href="{{ url_for('dashboard') if current_user else url_for('login_page') }}">
+      <span class="logo">G</span>
+      <span><strong>{{ app_name }}</strong><em>Carpool Edition</em></span>
+    </a>
+    {% if current_user %}
+    <div class="nav-right">
+      <a class="nav-link" href="{{ url_for('dashboard') }}">控制台</a>
+      <a class="nav-link" href="{{ url_for('logs') }}">日志</a>
+      {% if is_admin %}<a class="nav-link" href="{{ url_for('view_config') }}">实时配置</a>{% endif %}
+      <span class="user-chip">{{ current_user.username }} · {{ '主账号' if current_user.role == 'admin' else '子账号' }}</span>
+      <form method="post" action="{{ url_for('logout') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="text-button" type="submit">退出</button>
+      </form>
+    </div>
+    {% endif %}
+  </nav>
+  <main class="page-shell">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-wrap">
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

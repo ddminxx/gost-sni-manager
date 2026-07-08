@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}登录 - {{ app_name }}{% endblock %}
+{% block content %}
+<section class="login-shell">
+  <div class="login-copy">
+    <p class="eyebrow">GOST v3 · SNI 分流 · 自用/拼车</p>
+    <h1>把一个 443 分给多台落地 VPS</h1>
+    <p>默认自用模式直连转发，性能损耗最低；需要拼车时可切换为拼车模式，启用子账号、限速、流量和有效期。</p>
+    <div class="mini-flow"><span>客户端 443</span><b>→</b><span>GOST SNI</span><b>→</b><span>落地 / Caddy</span></div>
+  </div>
+  <div class="login-card">
+    <h2>登录面板</h2>
+    <form method="post" action="{{ url_for('login_submit') }}" class="stack-form">
+      <label>用户名
+        <input name="username" autocomplete="username" required placeholder="gsm_xxxxxxxx">
+      </label>
+      <label>密码
+        <input name="password" type="password" autocomplete="current-password" required placeholder="安装时生成的强密码">
+      </label>
+      <button class="primary-button wide" type="submit">进入控制台</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}运行日志 - {{ app_name }}{% endblock %}
+{% block content %}
+<header class="hero-card compact">
+  <div>
+    <p class="eyebrow">运行日志</p>
+    <h1>服务日志</h1>
+    <p class="muted">排查连接失败时，优先看 GOST 和本地流量中继日志。</p>
+  </div>
+  <a class="ghost-button" href="{{ url_for('dashboard') }}">返回控制台</a>
+</header>
+<section class="grid-2">
+  <div class="panel-card"><h2>GOST</h2><pre class="code-block">{{ gost_logs }}</pre></div>
+  <div class="panel-card"><h2>本地中继</h2><pre class="code-block">{{ relay_logs }}</pre></div>
+</section>
+<section class="panel-card"><h2>Caddy</h2><pre class="code-block">{{ caddy_logs }}</pre></section>
+{% endblock %}

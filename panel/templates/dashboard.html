@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}控制台 - {{ app_name }}{% endblock %}
+{% set carpool = settings.forwarding_mode == 'carpool' %}
+{% block content %}
+<header class="hero-card">
+  <div class="hero-copy">
+    <p class="eyebrow">443 端口复用 · {{ '拼车模式' if carpool else '自用模式' }}</p>
+    <h1>{{ '主账号控制台' if is_admin else '我的转发规则' }}</h1>
+    <p class="muted">{{ '拼车模式：GOST 命中 SNI 后先进入本地中继，执行限速、流量统计和有效期判断。' if carpool else '自用模式：GOST 命中 SNI 后直接转发到目标落地 VPS，性能损耗最低；未命中仍进入 Caddy fallback。' }}</p>
+  </div>
+  <div class="hero-actions">
+    <form method="post" action="{{ url_for('apply_now') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="primary-button" type="submit">重新应用配置</button>
+    </form>
+    <a class="ghost-button" href="{{ url_for('logs') }}">查看日志</a>
+  </div>
+</header>
+
+<section class="status-grid">
+  <div class="status-card"><span>当前模式</span><strong>{{ '拼车模式' if carpool else '自用模式' }}</strong></div>
+  <div class="status-card"><span>GOST</span><strong class="status-pill {{ 'ok' if status.get('gost') == 'active' else 'bad' }}">{{ status.get('gost','unknown') }}</strong></div>
+  {% if carpool %}<div class="status-card"><span>中继</span><strong class="status-pill {{ 'ok' if status.get('gsm-relay') == 'active' else 'bad' }}">{{ status.get('gsm-relay','unknown') }}</strong></div>{% endif %}
+  <div class="status-card"><span>Caddy</span><strong class="status-pill {{ 'ok' if status.get('caddy') == 'active' else 'warn' }}">{{ status.get('caddy','unknown') }}</strong></div>
+  <div class="status-card"><span>启用规则</span><strong>{{ stats.active_rules }} / {{ stats.total_rules }}</strong></div>
+  {% if is_admin and carpool %}<div class="status-card"><span>子账号</span><strong>{{ stats.total_users }}</strong></div>{% endif %}
+  {% if carpool %}<div class="status-card wide"><span>已统计流量</span><strong>{{ fmt_bytes(stats.used_bytes) }}</strong></div>{% endif %}
+</section>
+
+{% if is_admin %}
+<section class="panel-card mode-card">
+  <div class="card-head between">
+    <div><span class="card-kicker">运行模式</span><h2>自用 / 拼车切换</h2><span class="hint">默认自用模式为 GOST 直连转发；拼车模式会启用 gsm-relay，实现子账号、限速、流量和有效期控制。</span></div>
+  </div>
+  <form method="post" action="{{ url_for('update_settings') }}" class="stack-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-row">
+      <label>运行模式
+        <select name="forwarding_mode">
+          <option value="direct" {{ 'selected' if not carpool else '' }}>自用模式：GOST 直连目标，性能最好</option>
+          <option value="carpool" {{ 'selected' if carpool else '' }}>拼车模式：经过本地中继，支持限速/流量/子账号</option>
+        </select>
+      </label>
+      <label>GOST 监听地址<input name="listen" required value="{{ settings.listen }}"></label>
+    </div>
+    <label>默认后端 / 未知 SNI<input name="fallback_addr" required value="{{ settings.fallback_addr }}"></label>
+    <button class="secondary-button" type="submit">保存并切换模式</button>
+  </form>
+</section>
+{% endif %}
+
+{% if not is_admin and carpool %}
+<section class="panel-card account-summary">
+  <div class="card-head between"><div><span class="card-kicker">账号额度</span><h2>剩余流量与有效期</h2></div><span class="status-pill {{ 'ok' if current_user.enabled else 'bad' }}">{{ '正常' if current_user.enabled else '禁用' }}</span></div>
+  <div class="quota-grid">
+    <div><span>账号到期</span><strong>{{ fmt_dt(current_user.expires_at) }}</strong></div>
+    <div><span>规则数量</span><strong>{{ stats.total_rules }} / {{ current_user.max_rules }}</strong></div>
+    <div><span>每条规则限速</span><strong>{{ fmt_limit(current_user.rule_speed_limit_mbps, 'Mbps') }}</strong></div>
+    <div><span>每条规则流量</span><strong>{{ fmt_gb(current_user.rule_traffic_limit_gb) }}</strong></div>
+    <div><span>账号总流量</span><strong>{{ fmt_bytes(stats.used_bytes) }} / {{ fmt_bytes(stats.limit_bytes) if stats.limit_bytes else '不限' }}</strong></div>
+    <div><span>剩余流量</span><strong>{{ fmt_bytes(stats.remaining_bytes) if stats.remaining_bytes is not none else '不限' }}</strong></div>
+  </div>
+  {% if stats.limit_bytes %}<div class="meter"><i style="width: {{ stats.traffic_percent }}%"></i></div>{% endif %}
+</section>
+{% endif %}
+
+<section class="grid-2">
+  <div class="panel-card accent-card">
+    <div class="card-head">
+      <span class="card-kicker">新增转发</span><h2>添加 SNI 规则</h2>
+      <span class="hint">{{ '拼车模式下，子账号规则会自动套用主账号分配的限速和流量额度。' if carpool else '自用模式下，规则将由 GOST 直接转发到目标域名或 IP，不经过本地中继。' }}</span>
+    </div>
+    <form method="post" action="{{ url_for('add_rule') }}" class="stack-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="enabled" value="true">
+      {% if is_admin and carpool %}<label>所属账号<select name="owner_id">{% for u in users %}<option value="{{ u.id }}" {{ 'selected' if u.id == current_user.id else '' }}>{{ u.username }}（{{ '主账号' if u.role == 'admin' else '子账号' }}）</option>{% endfor %}</select></label>{% endif %}
+      <label>SNI / serverName<input name="sni" required placeholder="落地 VPS 的 SNI，例如 visa.cn"></label>
+      <div class="form-row"><label>目标域名或 IP<input name="target" required placeholder="落地 VPS 的域名或 IP，例如 a.example.com"></label><label>目标端口<input name="port" required type="number" min="1" max="65535" value="443"></label></div>
+      {% if is_admin and carpool %}<div class="form-row"><label>规则限速 Mbps<input name="speed_limit_mbps" type="number" step="0.1" min="0" placeholder="留空不限"></label><label>规则流量 GB<input name="traffic_limit_gb" type="number" step="0.1" min="0" placeholder="留空不限"></label></div>{% endif %}
+      <label>备注<input name="note" maxlength="120" placeholder="落地 B / 香港 / 反代"></label>
+      <button class="primary-button" type="submit">添加并应用</button>
+    </form>
+  </div>
+
+  {% if is_admin and carpool %}
+  <div class="panel-card">
+    <div class="card-head"><span class="card-kicker">创建子账号</span><h2>拼车用户额度</h2><span class="hint">子账号无法调整限速、流量和有效期。</span></div>
+    <form method="post" action="{{ url_for('add_account') }}" class="stack-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="enabled" value="true">
+      <div class="form-row"><label>用户名<input name="username" required placeholder="user001"></label><label>初始密码<input name="password" required placeholder="至少 10 位"></label></div>
+      <div class="form-row"><label>规则数量上限<input name="max_rules" type="number" min="0" max="500" value="2"></label><label>有效期<input name="expires_at" type="datetime-local"></label></div>
+      <div class="form-row"><label>每条规则限速 Mbps<input name="rule_speed_limit_mbps" type="number" min="0" step="0.1" placeholder="留空不限"></label><label>每条规则流量 GB<input name="rule_traffic_limit_gb" type="number" min="0" step="0.1" placeholder="留空不限"></label></div>
+      <label>账号总流量 GB<input name="account_traffic_limit_gb" type="number" min="0" step="0.1" placeholder="留空不限"></label><label>备注<input name="note" maxlength="120" placeholder="车友备注"></label>
+      <button class="secondary-button" type="submit">创建子账号</button>
+    </form>
+  </div>
+  {% else %}
+  <div class="panel-card">
+    <div class="card-head"><span class="card-kicker">使用说明</span><h2>{{ '拼车客户端怎么填' if carpool else '自用客户端怎么填' }}</h2></div>
+    <div class="info-box"><strong>连接地址</strong><p>把客户端里的落地地址改成中转 VPS 的域名或 IP，端口保持 443，SNI / serverName 仍填写落地 VPS 的 REALITY SNI。</p></div>
+    <div class="info-box"><strong>当前模式</strong><p>{{ '拼车模式会统计经过中继的流量，账号过期、超量或规则超量后转发会停止。' if carpool else '自用模式不做流量统计和限速，适合自己使用或追求更高转发效率。' }}</p></div>
+  </div>
+  {% endif %}
+</section>
+
+<section class="panel-card rules-card">
+  <div class="card-head between"><div><span class="card-kicker">规则列表</span><h2>{{ '全部 SNI 转发' if is_admin else '我的 SNI 转发' }}</h2><span class="hint">{{ '规则会先转到本地限速中继，再连接到目标落地 VPS。' if carpool else '规则由 GOST 直接连接目标落地 VPS。' }}</span></div>{% if is_admin %}<a class="ghost-button" href="{{ url_for('view_config') }}">查看实时配置</a>{% endif %}</div>
+  {% if rules %}
+  <div class="table-wrap"><table><thead><tr><th>状态</th>{% if is_admin and carpool %}<th>账号</th>{% endif %}<th>SNI</th><th>目标</th><th>模式</th>{% if carpool %}<th>限速</th><th>流量</th>{% endif %}<th>备注</th><th>操作</th></tr></thead><tbody>
+  {% for rule in rules %}
+  <tr class="{{ '' if rule.active else 'disabled-row' }}">
+    <td><form method="post" action="{{ url_for('toggle_rule', rule_id=rule.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="mini-toggle {{ 'on' if rule.enabled and rule.active else 'off' }}" type="submit">{{ 'ON' if rule.enabled and rule.active else 'OFF' }}</button></form></td>
+    {% if is_admin and carpool %}<td>{{ rule.owner_username }}</td>{% endif %}
+    <td><code>{{ rule.sni }}</code>{% if carpool %}<small>127.0.0.1:{{ rule.relay_port }}</small>{% endif %}</td>
+    <td><code>{{ rule.target }}:{{ rule.port }}</code></td><td>{{ '拼车中继' if carpool else 'GOST 直连' }}</td>
+    {% if carpool %}<td>{{ fmt_limit(rule.speed_limit_mbps, 'Mbps') }}</td><td><div>{{ fmt_bytes(rule.used_bytes) }} / {{ fmt_bytes(rule.limit_bytes) if rule.limit_bytes else '不限' }}</div>{% if rule.limit_bytes %}<div class="meter tiny"><i style="width: {{ rule.traffic_percent }}%"></i></div>{% endif %}</td>{% endif %}
+    <td>{{ rule.note or '-' }}</td>
+    <td class="actions"><details><summary class="small-button">编辑</summary><form method="post" action="{{ url_for('update_rule', rule_id=rule.id) }}" class="inline-edit"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="enabled" value="{{ 'true' if rule.enabled else 'false' }}"><input name="sni" value="{{ rule.sni }}" required><input name="target" value="{{ rule.target }}" required><input name="port" value="{{ rule.port }}" required type="number" min="1" max="65535">{% if is_admin and carpool %}<input name="speed_limit_mbps" value="{{ rule.speed_limit_mbps or '' }}" placeholder="Mbps"><input name="traffic_limit_gb" value="{{ rule.traffic_limit_gb or '' }}" placeholder="GB">{% endif %}<input name="note" value="{{ rule.note }}" maxlength="120"><button class="secondary-button small" type="submit">保存</button></form></details><form method="post" action="{{ url_for('delete_rule', rule_id=rule.id) }}" onsubmit="return confirm('确定删除这条规则吗？')"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger-button" type="submit">删除</button></form></td>
+  </tr>
+  {% endfor %}
+  </tbody></table></div>
+  {% else %}<div class="empty-state"><h3>还没有规则</h3><p>先添加一条，例如 <code>visa.cn → a.example.com:443</code>。</p></div>{% endif %}
+</section>
+
+{% if is_admin and carpool %}
+<section class="panel-card">
+  <div class="card-head"><span class="card-kicker">子账号管理</span><h2>拼车账号</h2><span class="hint">可调整规则数量、限速、流量和有效期；过期或禁用后规则自动失效。</span></div>
+  <div class="account-list">
+  {% for u in users if u.role != 'admin' %}
+    <details class="account-item"><summary><strong>{{ u.username }}</strong><span>{{ '正常' if u.active else '失效' }}</span><em>规则 {{ u.rule_count }}/{{ u.max_rules }} · 流量 {{ fmt_bytes(u.used_bytes) }} / {{ fmt_bytes(u.limit_bytes) if u.limit_bytes else '不限' }} · 到期 {{ fmt_dt(u.expires_at) }}</em></summary>
+      <form method="post" action="{{ url_for('update_account', user_id=u.id) }}" class="stack-form account-edit"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label class="checkbox"><input type="checkbox" name="enabled" {{ 'checked' if u.enabled else '' }}> 启用账号</label><div class="form-row"><label>规则数量上限<input name="max_rules" type="number" min="0" max="500" value="{{ u.max_rules }}"></label><label>有效期<input name="expires_at" type="datetime-local" value="{{ (u.expires_at or '')[:16] }}"></label></div><div class="form-row"><label>每条规则限速 Mbps<input name="rule_speed_limit_mbps" type="number" min="0" step="0.1" value="{{ u.rule_speed_limit_mbps or '' }}" placeholder="留空不限"></label><label>每条规则流量 GB<input name="rule_traffic_limit_gb" type="number" min="0" step="0.1" value="{{ u.rule_traffic_limit_gb or '' }}" placeholder="留空不限"></label></div><label>账号总流量 GB<input name="account_traffic_limit_gb" type="number" min="0" step="0.1" value="{{ u.account_traffic_limit_gb or '' }}" placeholder="留空不限"></label><label>备注<input name="note" value="{{ u.note or '' }}" maxlength="120"></label><button class="secondary-button" type="submit">保存账号</button></form>
+      <div class="button-row"><form method="post" action="{{ url_for('reset_account_password', user_id=u.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="small-button" type="submit">重置密码</button></form><form method="post" action="{{ url_for('delete_account', user_id=u.id) }}" onsubmit="return confirm('删除该账号及其规则？')"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger-button" type="submit">删除账号</button></form></div>
+    </details>
+  {% else %}<div class="empty-state"><h3>还没有子账号</h3><p>切换到拼车模式后，可以给每个车友分配规则数量、流量、限速和有效期。</p></div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if is_admin %}<section class="panel-card"><div class="card-head"><span class="card-kicker">端口检查</span><h2>443 监听状态</h2></div><pre class="code-block">{{ status.get('listen_443') or '暂未检测到 :443 监听。' }}</pre><p class="muted small-text">{{ status.get('gost_version') }}</p></section>{% endif %}
+{% endblock %}
